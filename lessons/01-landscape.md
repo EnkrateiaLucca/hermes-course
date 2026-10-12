@@ -50,13 +50,13 @@ didn't.
 Draw this as three layers, because students routinely collapse them:
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  YOUR AGENT   = instructions + memory + skills + tools   │  ← the durable asset
-├──────────────────────────────────────────────────────────┤
-│  THE HARNESS  = Hermes / Claude Code / OpenClaw          │  ← loop, tools, safety
-├──────────────────────────────────────────────────────────┤
-│  THE MODEL    = Qwen3.5-9B / Qwen3.6-35B-A3B / Hermes 4  │  ← swappable
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│  YOUR AGENT   = instructions + memory + skills + tools     │  ← the durable asset
+├────────────────────────────────────────────────────────────┤
+│  THE HARNESS  = Hermes / Claude Code / OpenClaw            │  ← loop, tools, safety
+├────────────────────────────────────────────────────────────┤
+│  THE MODEL    = Qwen3.5-9B / Qwen3.6-35B-A3B / Hermes 4.3  │  ← swappable
+└────────────────────────────────────────────────────────────┘
 ```
 
 The harness is where all the interesting engineering lives: what goes in the
@@ -89,7 +89,7 @@ One more mapping worth putting on a slide early, because it removes most of the
 
 | Purpose | Hermes | Claude Code |
 |---|---|---|
-| Project instructions | `AGENTS.md` (repo root) | `CLAUDE.md` (repo root) |
+| Project instructions | `AGENTS.md` (repo root) | `CLAUDE.md` — or the same `AGENTS.md` (v2.1.277+, when no `CLAUDE.md` exists) |
 | Global personality | `SOUL.md` (`~/.hermes/`) | `~/.claude/CLAUDE.md` |
 | Learned facts | `MEMORY.md`, `USER.md` | Auto Memory |
 | Procedures | `~/.hermes/skills/*/SKILL.md` | `~/.claude/skills/*/SKILL.md` |
@@ -114,9 +114,9 @@ The shortlist:
 
 | Model | RAM | Where it fits |
 |---|---|---|
-| **Qwen3.5-9B** | 8 GB+ | The official Mac starter pick. Quantized, Apple Silicon. |
+| **Qwen3.5-9B** | 8 GB+ at 64K ctx · ~10 GB at 128K | The official Mac starter pick. Quantized, Apple Silicon. |
 | **Qwen3.6-35B-A3B** | 32 GB+ | Daily driver, NVIDIA-endorsed default. |
-| **Hermes 4 36B** | 32 GB+ | Nous's own model, tuned for tool calling. |
+| **Hermes 4.3 36B** | 32 GB+ | Nous's own model, tuned for tool calling. |
 
 **Hard requirement regardless of pick: the model must serve ≥64K context.**
 Hermes's system prompt plus context files plus tool definitions plus a real
@@ -137,22 +137,17 @@ the first suspect, not the model's intelligence.** Students will hit this.
 
 ## 1.6 The local coding-agent landscape
 
-Preview of the Lesson 5 matrix, one line each:
-
-- **Hermes** — persistent workflows, learns from work, one agent reachable from CLI *and* messaging.
-- **Claude Code + Ollama** — deep IDE integration, the most mature tooling, focused coding sessions.
-- **OpenClaw** — lightest setup, pure CLI coding.
-
-Frame the choice as: **pick Hermes when the accumulated context is the point;
-pick a stateless coding agent when each session is disposable.** Most people
-want both, for different work. That's a legitimate answer.
+Hermes, Claude Code + Ollama, and OpenClaw each win for different work — the
+full comparison and the one-line rule for picking are in the
+[Lesson 5 matrix](05-decision-matrix.md#51-the-matrix).
 
 ---
 
 ## Q&A you should expect
 
 **"Isn't this just Claude Code with extra steps?"**
-Partly yes, and we'll settle it properly in Lesson 5 with a five-rung ladder.
+Partly yes, and we'll settle it properly in
+[Lesson 3](03-memory-and-skills.md#35-the-objection-answered-the-self-improvement-ladder) with a five-rung ladder.
 Short version: same capability class, different default posture toward
 persistence, plus you own the model.
 

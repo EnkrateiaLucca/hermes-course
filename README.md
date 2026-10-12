@@ -19,6 +19,7 @@ the room already knows.
 - [`assets/config.yaml`](assets/config.yaml) — MCP servers block → `~/.hermes/config.yaml`
 - [`assets/eval-template.csv`](assets/eval-template.csv) — the 25-row tool-call eval set
 - [`assets/cron-commands.md`](assets/cron-commands.md) — copy-paste cron jobs
+- Root [`AGENTS.md`](AGENTS.md) / [`SOUL.md`](SOUL.md) — the instructor's own lived-in setup (private paths redacted), next to the `assets/` starters.
 
 ## Through-lines (keep these consistent across all five blocks)
 
@@ -30,5 +31,5 @@ the room already knows.
 
 ## Two install corrections
 
-1. **There is no `pip install hermes-agent`.** Install is `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` or the Desktop app.
+1. **`pip install hermes-agent` is Nous-published but lags the installer (0.19.0 vs v0.21.x) and skips bundled deps.** Install with `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` or the Desktop app.
 2. **On Mac the official local-LLM path is llama.cpp or omlx/MLX behind a Custom endpoint**, not Ollama. Ollama works (`OLLAMA_API_KEY`), it just isn't the doc's Mac path. Demo one, and say which.

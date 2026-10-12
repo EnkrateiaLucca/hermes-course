@@ -149,8 +149,8 @@ Where things land:
   consolidation. No rung-5 skill authoring.
 - **Hermes** is the one documented running **rungs 3→5 wired together as one
   default, always-on product**: autonomous memory writes (`write_approval` off
-  by default), an unattended Curator moving skills active → stale (30d) →
-  archived (90d), FTS5 over all sessions, and agent-authored skills.
+  by default), an unattended Curator moving skills active → stale (14d) →
+  archived (30d), FTS5 over all sessions, and agent-authored skills.
 
 **The takeaway to say out loud: Hermes's differentiator is default integration,
 not intelligence.** That's a smaller claim than the marketing makes and a much

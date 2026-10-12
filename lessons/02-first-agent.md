@@ -21,9 +21,10 @@ hermes --version
 
 Windows has a PowerShell one-liner; there's also a Desktop installer for Mac.
 
-> **There is no `pip install hermes-agent`.** If a student finds a PyPI package
-> by that name, it is not this. Same shape as Claude Code, which installs via
-> `npm i -g @anthropic-ai/claude-code` or the native installer, not from PyPI.
+> **`pip install hermes-agent` *is* Nous-published, but it lags the installer**
+> (PyPI 0.19.0 vs v0.21.5) and skips the bundled Node/ripgrep/ffmpeg. Use the
+> installer. Same shape as Claude Code, which installs via the native installer
+> (recommended) or npm.
 
 ---
 
@@ -40,6 +41,7 @@ Choose **Custom endpoint** and give it a base URL + API key.
 ```bash
 # llama.cpp — lower latency
 brew install llama.cpp
+# 8 GB Mac: -c 65536
 llama-server -m qwen3.5-9b-q4.gguf \
   -c 131072 --cache-type-k q4_0 --cache-type-v q4_0 --port 8080
 # → endpoint http://localhost:8080/v1
@@ -54,6 +56,10 @@ llama-server -m qwen3.5-9b-q4.gguf \
 one for the live demo and tell the room which one you're on — mixing them
 mid-class produces unreproducible failures.
 
+**One-command alternative (v0.21.6+):** `hermes model` → **Local models**
+installs a pinned llama.cpp, recommends a model that fits your machine,
+downloads it and makes it the default. No endpoint to type.
+
 Re-run `hermes model` to confirm the selection, then launch:
 
 ```bash
@@ -61,8 +67,8 @@ hermes --tui
 ```
 
 > **≥64K context or nothing.** That's why the llama.cpp line carries `-c 131072`
-> and the KV-cache quantization flags: 128K of context at q4 KV is what makes
-> 64K+ affordable in 8 GB.
+> and the KV-cache quantization flags. `-c 131072` plus q4 KV needs about 10 GB;
+> on an 8 GB Mac, use `-c 65536` (Hermes's 64K floor).
 
 **Claude Code contrast:** you never pick a model server, only a model name.
 Here you own the whole inference stack, which is exactly the trade — more
@@ -161,6 +167,11 @@ Every command is checked against a curated dangerous-pattern list — recursive
 deletes, SQL drops, piping curl into a shell — before it runs. Four answers:
 **once / session / always / deny**.
 
+The default is `approvals.mode: smart`: an auxiliary model auto-approves
+low-risk commands, auto-denies clearly dangerous ones, and sends only uncertain
+ones to the once/session/always/deny prompt. Set `manual` for the live demo so
+the room sees the prompt.
+
 **Choose `session`, not `always`,** until you trust the setup. `always` is a
 permanent grant made at the moment you have the least evidence. This is the same
 decision as Claude Code's permission modes; the failure mode is identical.
@@ -214,12 +225,12 @@ right arguments?**
 Build a 25-row CSV of tasks you'd actually give this agent:
 
 ```csv
-id,task,expected_tool,expected_args,notes,pass_fail
-1,"What files are in src/?",list_files,"path=src/",read-only baseline,
-2,"Find every use of get_user",ripgrep,"pattern=get_user",search,
-3,"Read app/main.py",read_file,"path=app/main.py",exact path,
-4,"Summarize the README",read_file,"path=README.md",should not shell out,
-5,"How many tests fail?",terminal,"cmd contains pytest",tool choice under ambiguity,
+id,task,expected_tool,expected_args,category,right_tool,right_args,notes
+1,What files are in src/?,search_files,"target=files,path=src/",read-only,,,
+2,Find every use of get_user in this repo,search_files,"target=content,pattern=get_user",search,,,
+3,Read app/main.py,read_file,path=app/main.py,read-only,,,
+4,Summarize the README,read_file,path=README.md,read-only,,,should not shell out
+5,Which Python version does this project require?,read_file,path=pyproject.toml,read-only,,,tests file-choice reasoning
 ```
 
 Full 25-row template: [`assets/eval-template.csv`](../assets/eval-template.csv).

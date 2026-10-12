@@ -22,18 +22,18 @@ mcp_servers:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/projects"]
     tools:
-      include: ["read_file", "list_directory"]   # start read-only
+      include: ["read_text_file", "list_directory"]   # start read-only
 
   fetch:
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-fetch"]
+    command: uvx
+    args: ["mcp-server-fetch"]
 ```
 
 Full file: [`assets/config.yaml`](../assets/config.yaml).
 
 Tools register as **`mcp_<server>_<tool>`** — so the filesystem server's
-`read_file` shows up as `mcp_filesystem_read_file`. Useful when debugging why
-the agent picked the wrong one.
+`read_text_file` shows up as `mcp_filesystem_read_text_file`. Useful when
+debugging why the agent picked the wrong one.
 
 ```bash
 hermes mcp                        # interactive picker
@@ -55,10 +55,11 @@ supported for remote servers; parallel calls work.
 hermes mcp serve
 ```
 
-Now Hermes — with its memory, its skills, its local model — is a tool that
-*other* agents can call. Including Claude Code. That's the composition story
-worth 30 seconds on a slide: these aren't competing harnesses, one can be the
-other's tool.
+This exposes a **messaging bridge** — 10 tools, e.g. `conversations_list`,
+`messages_read`, `messages_send` — so Claude Code can read and send your
+Telegram/Slack/Discord conversations through Hermes. That's the composition
+story worth 30 seconds on a slide: these aren't competing harnesses, one can be
+the other's tool.
 
 **Claude Code contrast:** identical protocol, different config file
 (`.mcp.json` / settings vs `config.yaml`). If your students already run MCP
@@ -94,7 +95,8 @@ and it's the one a stateless coding session doesn't have.
 ## 4.3 The gateway: one agent, everywhere you type
 
 ```bash
-hermes gateway setup     # installs as launchd (mac) / systemd (linux)
+hermes gateway setup     # pick platforms
+hermes gateway install   # launchd (mac) / systemd (linux)
 hermes gateway
 ```
 
@@ -211,9 +213,12 @@ session on the other model over bouncing back and forth mid-conversation.**
 
 Hermes checks every command against a curated dangerous-pattern list before
 running it. Approval tiers: once / session / always / deny. Start at **session**.
+Under the default `approvals.mode: smart`, only uncertain commands reach the
+prompt: an auxiliary model auto-approves low-risk and auto-denies clearly
+dangerous ones.
 
-> **Container backends (Docker, Singularity, Modal, Daytona) SKIP the
-> dangerous-command check.** The container *is* the security boundary. This is a
+> **Container backends (Docker, Singularity, Modal, Daytona, Vercel Sandbox)
+> SKIP the dangerous-command check.** The container *is* the security boundary. This is a
 > deliberate design decision and it means: if you set `TERMINAL_ENV=docker`, the
 > image you choose is your entire defense.
 

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Local Agents with Hermes — Cheatsheet</title>
+<style>
+  @page { size: A4; margin: 12mm 12mm 12mm 12mm;
+          @bottom-right { content: "Local Agents with Hermes · page " counter(page) " of " counter(pages);
+                          font: 7pt "DejaVu Sans", sans-serif; color: #8a6d63; } }
+  :root { --ink: #2a1b18; --accent: #B8483A; --soft: #F6EEE4; --line: #e3d3c4; --muted: #6b5249; }
+  * { box-sizing: border-box; }
+  body { font: 8.2pt/1.35 "DejaVu Sans", "Helvetica", sans-serif; color: var(--ink); margin: 0; }
+  header { border-bottom: 2.5pt solid var(--accent); padding-bottom: 4pt; margin-bottom: 7pt; }
+  header h1 { font-size: 16pt; margin: 0; letter-spacing: -0.2pt; }
+  header p { margin: 2pt 0 0; color: var(--muted); font-size: 8.5pt; }
+  .cols { column-count: 2; column-gap: 9mm; }
+  section { break-inside: avoid; margin: 0 0 7pt; }
+  h2 { font-size: 9.5pt; color: var(--accent); margin: 0 0 3pt; text-transform: uppercase; letter-spacing: 0.4pt;
+       border-bottom: 0.6pt solid var(--line); padding-bottom: 1.5pt; }
+  p { margin: 0 0 3pt; }
+  ul { margin: 0 0 3pt; padding-left: 11pt; }
+  li { margin: 0 0 1pt; }
+  code, pre { font-family: "DejaVu Sans Mono", monospace; font-size: 7.3pt; }
+  code { background: var(--soft); padding: 0 1.5pt; border-radius: 1.5pt; }
+  pre { background: var(--soft); border-left: 2pt solid var(--accent); padding: 3pt 5pt; margin: 2pt 0 4pt;
+        white-space: pre-wrap; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; margin: 1pt 0 4pt; }
+  th, td { text-align: left; vertical-align: top; padding: 1.8pt 3pt; border-bottom: 0.5pt solid var(--line); }
+  th { background: var(--soft); font-size: 7.6pt; }
+  .note { background: #fbe9e4; border-left: 2pt solid var(--accent); padding: 3pt 5pt; margin: 3pt 0 4pt; }
+  .close { column-span: all; text-align: center; border-top: 1.5pt solid var(--accent); padding-top: 5pt;
+           margin-top: 4pt; font-style: italic; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Local Agents with Hermes — Cheatsheet</h1>
+  <p>Hermes Agent v0.21 · every concept mapped to its Claude Code equivalent · the model is a component, the context is the asset</p>
+</header>
+
+<div class="cols">
+
+<section>
+  <h2>The mental map</h2>
+  <table>
+    <tr><th>Layer</th><th>Is</th><th>Role</th></tr>
+    <tr><td><b>Your agent</b></td><td>instructions + memory + skills + tools</td><td>the durable asset</td></tr>
+    <tr><td><b>Harness</b></td><td>Hermes / Claude Code / OpenClaw</td><td>loop, tools, safety</td></tr>
+    <tr><td><b>Model</b></td><td>Qwen3.5-9B / Qwen3.6-35B-A3B / Hermes 4.3</td><td>swappable</td></tr>
+  </table>
+  <p><b>No weights change anywhere in this course.</b> "Self-improves through use" is context engineering, not fine-tuning.</p>
+</section>
+
+<section>
+  <h2>Install &amp; first run</h2>
+<pre>curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+hermes --version
+hermes model      # Custom endpoint: base URL + API key
+hermes --tui</pre>
+  <p><code>pip install hermes-agent</code> lags the installer (PyPI 0.19.0 vs v0.21.x) and skips bundled Node/ripgrep/ffmpeg. Use the installer.</p>
+</section>
+
+<section>
+  <h2>Pick a local model</h2>
+  <p>Ask in order: <b>RAM budget?</b> → <b>task?</b> → <b>is tool-calling reliable?</b></p>
+  <table>
+    <tr><th>Model</th><th>RAM</th><th>Fit</th></tr>
+    <tr><td>Qwen3.5-9B</td><td>8 GB+ (64K) · ~10 GB (128K)</td><td>Official Mac starter</td></tr>
+    <tr><td>Qwen3.6-35B-A3B</td><td>32 GB+</td><td>Daily driver</td></tr>
+    <tr><td>Hermes 4.3 36B</td><td>32 GB+</td><td>Nous, tuned for tools</td></tr>
+  </table>
+  <p><b>≥64K context or nothing.</b> Mac path: llama.cpp or omlx/MLX behind a Custom endpoint (Ollama also works).</p>
+<pre>llama-server -m qwen3.5-9b-q4.gguf -c 131072 \
+  --cache-type-k q4_0 --cache-type-v q4_0 --port 8080
+# 8 GB Mac: -c 65536   → http://localhost:8080/v1</pre>
+  <p>One-command alternative (v0.21.6+): <code>hermes model</code> → <b>Local models</b> installs llama.cpp and picks a model that fits.</p>
+  <p>Local model "doesn't work"? Suspect the <b>tool-call parser</b> first.</p>
+</section>
+
+<section>
+  <h2>Where things live</h2>
+  <table>
+    <tr><th>Purpose</th><th>Hermes</th><th>Claude Code</th></tr>
+    <tr><td>Project rules</td><td><code>AGENTS.md</code> (repo root)</td><td><code>CLAUDE.md</code></td></tr>
+    <tr><td>Personality</td><td><code>~/.hermes/SOUL.md</code></td><td><code>~/.claude/CLAUDE.md</code></td></tr>
+    <tr><td>Learned facts</td><td><code>MEMORY.md</code>, <code>USER.md</code></td><td>Auto Memory</td></tr>
+    <tr><td>Procedures</td><td><code>~/.hermes/skills/*/SKILL.md</code></td><td><code>~/.claude/skills/</code></td></tr>
+    <tr><td>Config</td><td><code>~/.hermes/config.yaml</code>, <code>.env</code></td><td><code>settings.json</code></td></tr>
+  </table>
+  <p>Context files sit in the cached system prompt, so editing them mid-session breaks the cache.</p>
+</section>
+
+<section>
+  <h2>The start-safe tool ladder</h2>
+  <table>
+    <tr><th>Rung</th><th>Enable</th><th>Worst case</th></tr>
+    <tr><td>1 Read-only</td><td>filesystem read, ripgrep</td><td>wasted tokens</td></tr>
+    <tr><td>2 Draft-only</td><td>new scratch files; <code>execute_code</code> off</td><td>a junk file</td></tr>
+    <tr><td>3 Reversible</td><td>edits inside a git repo</td><td><code>git checkout .</code></td></tr>
+    <tr><td>4 Irreversible</td><td>delete, terminal, send, spend, prod</td><td>you explain it</td></tr>
+  </table>
+  <p>Tools, MCP servers, and cron jobs all climb the same ladder. Approvals: <b>once / session / always / deny</b>, so pick <b>session</b> until you trust it. Default <code>approvals.mode: smart</code>.</p>
+</section>
+
+<section>
+  <h2>The 60-second eval habit</h2>
+  <p>25 real tasks in <code>assets/eval-template.csv</code>. Score only <b>right tool?</b> and <b>right args?</b></p>
+  <ul>
+    <li>Below ~80% tool accuracy, the harness will feel broken.</li>
+    <li>Same 25 rows compare two models objectively.</li>
+    <li>Re-run after every new skill and every MCP server.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Memory</h2>
+  <ul>
+    <li><code>MEMORY.md</code> ~2,200 chars · <code>USER.md</code> ~1,375 chars: small on purpose, in every turn's prompt.</li>
+    <li><b>Frozen mid-session:</b> a memory write lands on disk now but reaches the prompt <b>next session</b>.</li>
+    <li><code>session_search</code>: FTS5 over <b>all</b> past raw sessions.</li>
+    <li>Curator LLM-consolidation is <b>off</b> by default; skill stale → archived moves run automatically.</li>
+  </ul>
+<pre>remember this for next time: the staging DB is at db-staging.internal:5432</pre>
+</section>
+
+<section>
+  <h2>Skills</h2>
+  <p>Reference document → skill; sticky note → memory. Promote a task to a skill when it's <b>5+ steps and repeats</b>. Same agentskills.io <code>SKILL.md</code> standard as Claude Code, so skills are portable both ways.</p>
+  <ol style="margin:0 0 3pt;padding-left:12pt">
+    <li>name + description, always loaded (~100–200 tokens)</li>
+    <li><code>SKILL.md</code> body, on trigger (&lt;~500 lines)</li>
+    <li>reference files, on demand</li>
+  </ol>
+<pre>save what you just did as a skill called deploy-staging
+/skills · /skills browse · hermes skills install official/&lt;name&gt;</pre>
+  <p>Fixed deterministic sequence? Write a script, not a skill.</p>
+</section>
+
+<section>
+  <h2>The self-improvement ladder</h2>
+  <table>
+    <tr><th>Rung</th><th>Behavior</th></tr>
+    <tr><td>1</td><td>Writes a file if told</td></tr>
+    <tr><td>2</td><td>User-triggered persistence (<code>CLAUDE.md</code>, <code>AGENTS.md</code>)</td></tr>
+    <tr><td>3</td><td>Decides what to remember, unprompted (Claude Code reaches here)</td></tr>
+    <tr><td>4</td><td>+ unattended long-horizon curation; retrieval by search</td></tr>
+    <tr><td>5</td><td>+ writes <em>and retires</em> its own skills</td></tr>
+  </table>
+  <p>Hermes ships rungs 3→5 on by default. <b>The differentiator is default integration, not intelligence.</b></p>
+</section>
+
+<section>
+  <h2>MCP</h2>
+<pre>mcp_servers:                 # ~/.hermes/config.yaml
+  filesystem:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/projects"]
+    tools:
+      include: ["read_text_file", "list_directory"]
+  fetch:
+    command: uvx
+    args: ["mcp-server-fetch"]</pre>
+  <p>Tools register as <code>mcp_&lt;server&gt;_&lt;tool&gt;</code>. <code>tools.include</code> is a <b>security control</b>. <code>hermes mcp</code> · <code>/reload-mcp</code> · <code>hermes mcp serve</code> exposes a messaging bridge to Claude Code.</p>
+</section>
+
+<section>
+  <h2>Gateway &amp; cron</h2>
+<pre>hermes gateway setup && hermes gateway install && hermes gateway
+/sethome          # where cron output lands; set it first
+/cron add "0 8 * * 1-5" "Check ~/projects/api for PRs opened since
+  yesterday... If none, reply [SILENT]." --name morning-prs --deliver telegram</pre>
+  <ul>
+    <li>Cron runs in <b>fresh sessions</b>, so the prompt must carry all context.</li>
+    <li><code>--script</code> preflight · <code>--skill</code> attach · <code>--deliver local</code> first · <code>[SILENT]</code> mutes "all fine".</li>
+    <li><code>/cron run &lt;name&gt;</code> once before trusting a schedule.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Cost: the prompt cache</h2>
+  <p>A stable system prompt earns cache hits. <b>Cache breakers:</b> <code>/model</code> switches, provider fallbacks, credential rotation, editing context files mid-session.</p>
+  <p><code>/compress</code> · <code>/usage</code> · <code>hermes prompt-size</code> · <code>/insights</code> · fan out with <code>delegate_task</code>, batch with <code>execute_code</code>.</p>
+</section>
+
+<section>
+  <h2>Security checklist</h2>
+  <div class="note"><b>Container backends skip the dangerous-command check.</b> With <code>TERMINAL_ENV=docker</code>, the image is your whole defense.</div>
+  <ul>
+    <li>Never <code>GATEWAY_ALLOW_ALL_USERS=true</code> on a terminal bot. Use <code>*_ALLOWED_USERS</code>.</li>
+    <li>Secrets in <code>~/.hermes/.env</code>, never <code>config.yaml</code> or <code>AGENTS.md</code>.</li>
+    <li><code>chmod 700 ~/.hermes/whatsapp-session</code>: live credentials.</li>
+    <li>MCP tool descriptions are a prompt-injection surface. Read what you install.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Which harness?</h2>
+  <table>
+    <tr><th>Use</th><th>When</th></tr>
+    <tr><td><b>Hermes</b></td><td>Persistent workflows, learning from work, one agent across CLI + messaging</td></tr>
+    <tr><td><b>Claude Code + Ollama</b></td><td>Deep IDE integration, most mature tooling, focused coding</td></tr>
+    <tr><td><b>OpenClaw</b></td><td>Lightest setup, pure CLI coding</td></tr>
+  </table>
+  <p>Pick Hermes when the accumulated context is the point; pick a stateless coding agent when each session is disposable.</p>
+</section>
+
+<p class="close">Build the context deliberately, wire new power at low blast radius first, and measure with an eval set instead of a feeling.</p>
+</div>
+</body>
+</html>

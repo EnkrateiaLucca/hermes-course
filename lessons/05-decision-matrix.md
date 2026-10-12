@@ -20,7 +20,8 @@ pick a stateless coding agent when each session is disposable.*
 Most people in the room want both. Hermes as the standing personal agent that
 knows their life; Claude Code for a hard afternoon in one repo. That is the
 correct answer, not a cop-out — and `hermes mcp serve` means the first can be a
-tool inside the second.
+tool inside the second: Claude Code reads and sends your messaging
+conversations through Hermes's messaging bridge.
 
 ---
 
@@ -71,15 +72,10 @@ it's what makes the recommendation trustworthy.
 
 > *"Claude Code writes files too. So what's actually different?"*
 
-Answer with the ladder from Lesson 3, not with hype:
+Answer with the ladder in
+[Lesson 3 §3.5](03-memory-and-skills.md#35-the-objection-answered-the-self-improvement-ladder);
+Hermes ships 3→5 on by default.
 
-- Every agent with filesystem access sits at rung 1.
-- Convention files (`CLAUDE.md`, `AGENTS.md`) are rung 2.
-- Claude Code's Auto Memory reaches rung 3.
-- Rung 4 is unattended long-horizon curation plus search-based retrieval.
-- Rung 5 is autonomous skill synthesis with a retirement lifecycle.
-
-**Hermes is the one shipping 3→5 wired together and turned on by default.**
 That's the difference. It's real, it's checkable, and it's smaller than the
 launch copy implies.
 
