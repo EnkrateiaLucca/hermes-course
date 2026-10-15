@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Local Agents with Hermes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ===== scene-deck engine: theme tokens (swap these to re-skin) ===== */
+:root{
+  --paper:#fdfdfb; --ink:#1f1f1c; --muted:#8b8b84; --faint:#d9d9d3;
+  --accent:#2b8a67; --accent-soft:#e3f3ec; --mark:#b2efd4; --warn:#b0364a;
+  --serif:'Lora',Georgia,serif; --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  --ease:cubic-bezier(.2,.7,.2,1); --t:.55s;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--paper)}
+body{font-family:var(--serif);color:var(--ink);-webkit-font-smoothing:antialiased}
+#stage{position:absolute;left:50%;top:50%;width:1600px;height:900px;transform-origin:center}
+
+/* ===== scenes ===== */
+.scene{position:absolute;inset:0 0 100px 0;padding:64px 90px;opacity:0;visibility:hidden;transition:opacity .45s var(--ease),visibility 0s .45s}
+.scene.active{opacity:1;visibility:visible;transition:opacity .45s var(--ease)}
+.scene.reset,.scene.reset *{transition:none!important}
+
+/* ===== type ===== */
+h1,.title{font:400 38px/1.3 var(--serif);margin-bottom:28px}
+.lede{font:400 46px/1.5 var(--serif);max-width:1250px}
+.body{font:400 26px/1.55 var(--serif);max-width:1100px}
+.small{font:400 20px/1.5 var(--serif);color:var(--muted)}
+.label,.kicker{font:400 15px/1.5 var(--mono);color:var(--muted);letter-spacing:.02em}
+.kicker{display:block;margin-bottom:10px}
+.mono{font-family:var(--mono)}
+.accent{color:var(--accent)} .muted{color:var(--muted)} .warn{color:var(--warn)}
+.src{position:absolute;left:90px;bottom:14px;font:italic 14px/1.4 var(--serif);color:var(--muted)}
+.abs{position:absolute}
+.row{display:flex;gap:48px;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:18px}
+.card{border:1.5px solid var(--ink);padding:22px 26px;background:var(--paper)}
+.card.soft{border-color:var(--faint)}
+.card.hi{border-color:var(--accent);background:var(--accent-soft)}
+svg{overflow:visible}
+svg text{font-family:var(--serif)} svg text:not([fill]){fill:var(--ink)}
+svg .t-mono{font-family:var(--mono);fill:var(--muted)}
+svg .t-it{font-style:italic;fill:var(--muted)}
+svg :is(text,tspan).accent{fill:var(--accent)} svg :is(text,tspan).muted{fill:var(--muted)} svg :is(text,tspan).warn{fill:var(--warn)}
+.ink{stroke:var(--ink);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.ink.acc{stroke:var(--accent)} .ink.warn{stroke:var(--warn)} .ink.thin{stroke-width:1} .ink.faint{stroke:var(--faint)}
+.fill-acc{fill:var(--accent)} .fill-soft{fill:var(--accent-soft)} .fill-paper{fill:var(--paper)} .fill-ink{fill:var(--ink)}
+
+/* ===== step states =====
+   data-step=n  hidden until local step n, then animates in
+   data-fx=n    always visible; its effect (mark sweep, strike, .glow) fires at n
+   data-dim=n   ghosts to faint at n        data-out=n  disappears at n          */
+[data-step]{transition:opacity var(--t) var(--ease),transform var(--t) var(--ease)}
+[data-step]:not(.on){opacity:0;transform:translateY(10px)}
+svg [data-step]:not(.on){transform:none}
+.pop{transform-box:fill-box;transform-origin:center}
+.pop[data-step]:not(.on){transform:scale(.6)}
+.dimmed{opacity:.18!important}
+.gone{opacity:0!important;pointer-events:none}
+[data-dim],[data-out]{transition:opacity var(--t) var(--ease),transform var(--t) var(--ease)}
+
+/* draw-on strokes: any shape inside .draw traces itself; fills fade in after */
+.draw[data-step]:not(.on){opacity:1;transform:none}
+.draw-shape{stroke-dasharray:var(--len);stroke-dashoffset:0;
+  transition:stroke-dashoffset .9s var(--ease) min(calc(var(--i,0)*.12s),1.4s),fill-opacity .4s ease min(calc(var(--i,0)*.12s + .5s),1.9s)}
+.draw:not(.on) .draw-shape,.draw-shape.draw:not(.on){stroke-dashoffset:var(--len);fill-opacity:0}
+.draw text,.draw-fade{transition:opacity .4s ease .45s}
+.draw:not(.on) :is(text,.draw-fade){opacity:0}
+.draw-fade.draw[data-step]:not(.on){opacity:0}
+
+/* marker highlight + strike sweep in */
+mark{color:inherit;background:linear-gradient(var(--mark),var(--mark)) no-repeat 0 0/100% 100%;padding:0 .12em;margin:0 -.04em;transition:background-size .6s var(--ease) .15s}
+s{text-decoration:none;position:relative;white-space:nowrap}
+s::after{content:'';position:absolute;left:-.05em;right:-.05em;top:56%;height:2px;background:var(--warn);transform-origin:left;transition:transform .5s var(--ease) .1s}
+mark[data-fx]:not(.fx-on),[data-step]:not(.on) mark,mark[data-step]:not(.on){background-size:0 100%}
+s[data-fx]:not(.fx-on)::after,[data-step]:not(.on) s::after{transform:scaleX(0)}
+.glow:not([data-step]):not(.draw-shape){transition:color .4s,stroke .4s,fill .4s,border-color .4s}
+[data-step].glow{transition:opacity var(--t) var(--ease),transform var(--t) var(--ease),color .4s,fill .4s,stroke .4s,border-color .4s}
+.glow.fx-on{color:var(--accent);border-color:var(--accent)}
+svg .glow.fx-on:not(text){stroke:var(--accent)} svg text.glow.fx-on{fill:var(--accent)}
+
+/* ambient motion */
+.spin{animation:spin 7s linear infinite;transform-box:fill-box;transform-origin:center}
+.float{animation:float 3.2s ease-in-out infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes float{50%{transform:translateY(-6px)}}
+.sketch{filter:url(#sketch)}
+
+/* ===== timeline ===== */
+#timeline{position:absolute;left:90px;right:90px;bottom:26px;height:56px;cursor:pointer;touch-action:none}
+#timeline .rail,#timeline .fill{position:absolute;left:0;top:40px;height:2px;background:var(--faint)}
+#timeline .rail{right:0}
+#timeline .fill{background:var(--accent);transition:width var(--t) var(--ease)}
+.dot{position:absolute;top:36px;width:10px;height:10px;margin-left:-5px;border-radius:50%;border:1.5px solid var(--faint);background:var(--paper);transition:.3s}
+.dot.past{background:var(--accent);border-color:var(--accent)}
+.dot b{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font:400 13px var(--mono);color:var(--muted)}
+.dot i{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);white-space:nowrap;font:italic 15px var(--serif);color:var(--ink);background:var(--paper);padding:2px 8px;opacity:0;transition:opacity .2s;pointer-events:none}
+.dot:hover i{opacity:1}
+#mascot{position:absolute;top:9px;width:32px;margin-left:-16px;color:var(--ink);transition:left var(--t) var(--ease);pointer-events:none}
+#mascot svg{display:block;width:32px;height:32px;transform-origin:50% 100%}
+#mascot.back svg{transform:scaleX(-1)}
+#mascot.walk svg{animation:waddle .2s ease-in-out infinite alternate}
+#mascot .eye{transform-box:fill-box;transform-origin:center;animation:blink 5s infinite}
+@keyframes waddle{from{rotate:-8deg}to{rotate:8deg;translate:0 -1.5px}}
+@keyframes blink{0%,95%,100%{scale:1 1}97.5%{scale:1 .1}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="sketch"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="4"/><feDisplacementMap in="SourceGraphic" scale="2.4"/></filter>
+  <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" style="stroke:var(--ink)" stroke-width="1.2"/></pattern>
+</svg>
+
+<div id="stage">
+<!-- ===================== SCENES START ===================== -->
+
+<style>
+/* ===== deck-specific additions (screenshots, code, callouts) ===== */
+.fig{position:absolute}
+.fig>img{display:block;width:100%}
+.fig>svg.ov{position:absolute;left:0;top:0;width:100%;height:100%}
+.fig.term>img{filter:drop-shadow(0 12px 26px rgba(0,0,0,.22))}
+.fig.shot>img{border:1px solid var(--faint);border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.10)}
+.ov .hl{stroke:#3ddc97;fill:none;stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+.ov text.hl-t{fill:#3ddc97;font-family:var(--mono);font-weight:500}
+.code{font:21px/1.6 var(--mono);background:#f4f4f1;padding:14px 22px;border-radius:6px;white-space:pre;color:var(--ink)}
+.code .c{color:var(--muted)} .code .a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.82em;background:#f1f1ec;padding:.04em .32em;border-radius:4px}
+h1 code{font-size:.8em}
+.call b{display:block;font:500 15px/1.5 var(--mono);color:var(--accent);letter-spacing:.02em;margin-bottom:4px}
+.call span{font:400 24px/1.45 var(--serif)}
+.chip{display:inline-block;font:400 19px var(--mono);color:var(--accent);border:1.5px solid var(--accent);border-radius:999px;padding:6px 16px;margin:0 10px 12px 0;background:var(--accent-soft)}
+.rung{border:1.5px solid var(--ink);padding:14px 20px;background:var(--paper)}
+.rung b{font:500 15px var(--mono);color:var(--muted);display:block}
+.rung span{font:400 22px/1.4 var(--serif)}
+</style>
+
+<!-- ============ 1 · HELLO ============ -->
+<section class="scene" data-chapter="Hello">
+  <div class="row" style="gap:12px;align-items:center">
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12 C7 4.5 25 4.5 25 12 V22 C25 28.5 7 28.5 7 22 Z" style="fill:var(--paper)"/><path d="M8.5 8.5 L7 2.5 L12 6 M23.5 8.5 L25 2.5 L20 6"/><circle cx="12" cy="12.5" r="3.7"/><circle cx="20" cy="12.5" r="3.7"/><circle cx="12.5" cy="12.8" r="1.6" fill="currentColor" stroke="none"/><circle cx="20.5" cy="12.8" r="1.6" fill="currentColor" stroke="none"/><path d="M15 15.6 L16 18.4 L17 15.6 Z" style="fill:var(--accent)" stroke="none"/></svg>
+    <span class="label">Lucas Soares · O'Reilly Live Training</span>
+  </div>
+  <h1 style="font-size:66px;line-height:1.15;max-width:700px;margin-top:150px">Build your first <mark data-fx="1">local</mark> agent with Hermes</h1>
+  <p class="body muted" data-step="2" style="max-width:640px">A private agent that runs on your machine, remembers you, and works while you sleep.</p>
+  <div class="fig shot" data-step="3" style="left:860px;top:180px;width:650px"><img src="img/web-hermes-home.png" alt="Hermes Agent website"></div>
+  <p class="src">hermes-agent.nousresearch.com · Nous Research</p>
+</section>
+
+<section class="scene">
+  <h1>Today</h1>
+  <svg width="1420" height="320" viewBox="0 0 1420 320" style="margin-top:110px">
+    <line class="ink thin draw" x1="60" y1="80" x2="1360" y2="80"/>
+    <g font-size="23" text-anchor="middle">
+      <g data-step="1" class="pop"><circle class="ink fill-paper" cx="60" cy="80" r="26"/><text x="60" y="88" class="t-mono" font-size="20">1</text><text x="60" y="160">Install</text></g>
+      <g data-step="2" class="pop"><circle class="ink acc fill-soft" cx="277" cy="80" r="30" style="stroke-width:2.4"/><text x="277" y="88" class="accent" font-size="22">2</text><text x="277" y="160" class="accent">Model setup</text><text x="277" y="192" class="t-mono" font-size="16">llama.cpp</text></g>
+      <g data-step="3" class="pop"><circle class="ink fill-paper" cx="493" cy="80" r="26"/><text x="493" y="88" class="t-mono" font-size="20">3</text><text x="493" y="160">Chat &amp; tools</text><text x="493" y="192" class="t-mono" font-size="16">skills · cron</text></g>
+      <g data-step="4" class="pop"><circle class="ink fill-paper" cx="710" cy="80" r="26"/><text x="710" y="88" class="t-mono" font-size="20">4</text><text x="710" y="160">Memory</text><text x="710" y="192" class="t-mono" font-size="16">3 small files</text></g>
+      <g data-step="5" class="pop"><circle class="ink fill-paper" cx="927" cy="80" r="26"/><text x="927" y="88" class="t-mono" font-size="20">5</text><text x="927" y="160">Second brain</text><text x="927" y="192" class="t-mono" font-size="16">Obsidian</text></g>
+      <g data-step="6" class="pop"><circle class="ink fill-paper" cx="1143" cy="80" r="26"/><text x="1143" y="88" class="t-mono" font-size="20">6</text><text x="1143" y="160">Messaging</text><text x="1143" y="192" class="t-mono" font-size="16">WhatsApp</text></g>
+      <g data-step="7" class="pop"><circle class="ink fill-paper" cx="1360" cy="80" r="26"/><text x="1360" y="88" class="t-mono" font-size="20">7</text><text x="1360" y="160">Using it</text><text x="1360" y="192" class="t-mono" font-size="16">vibe check</text></g>
+    </g>
+  </svg>
+</section>
+
+<section class="scene">
+  <h1>Three layers</h1>
+  <svg width="1420" height="470" viewBox="0 0 1420 470">
+    <g class="draw sketch" data-step="3"><rect class="ink acc fill-soft" x="160" y="20" width="700" height="110" rx="6" style="stroke-width:2.4"/></g>
+    <text x="190" y="88" font-size="32" class="accent" data-step="3">Your context</text>
+    <text x="830" y="86" text-anchor="end" class="t-mono" font-size="18" data-step="3">memory · skills · SOUL.md</text>
+    <text x="900" y="86" font-size="24" class="t-it" data-step="3">compounds</text>
+
+    <g class="draw sketch" data-step="2"><rect class="ink" x="160" y="170" width="700" height="110" rx="6"/></g>
+    <text x="190" y="238" font-size="32" data-step="2">Hermes</text>
+    <text x="830" y="236" text-anchor="end" class="t-mono" font-size="18" data-step="2">the loop · tools · safety rails</text>
+    <text x="900" y="236" font-size="24" class="t-it" data-step="2">the harness</text>
+
+    <g class="draw sketch" data-step="1"><rect class="ink" x="160" y="320" width="700" height="110" rx="6"/></g>
+    <text x="190" y="388" font-size="32" data-step="1">Model</text>
+    <text x="830" y="386" text-anchor="end" class="t-mono" font-size="18" data-step="1">Qwen · Gemma · gpt-oss · Claude</text>
+    <text x="900" y="386" font-size="24" class="t-it" data-step="1">swappable</text>
+  </svg>
+  <p class="lede" data-step="4" style="font-size:38px;margin-top:10px">Swap the model. <mark>Keep the context.</mark></p>
+</section>
+
+<!-- ============ 2 · INSTALL ============ -->
+<section class="scene" data-chapter="Install">
+  <h1>Install</h1>
+  <div class="code" style="font-size:26px">curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash</div>
+  <div class="row" style="margin-top:40px;gap:40px">
+    <div class="col" style="width:540px;gap:22px" data-step="1">
+      <div class="code">hermes --version
+<span class="c">Hermes Agent v0.22.1 (2026.9.24)</span></div>
+      <p class="small" data-step="2">Windows: the PowerShell one-liner<br>Mac: the Desktop app works too</p>
+    </div>
+    <div class="fig shot" data-step="2" style="position:relative;width:840px"><img src="img/crop-install.png" alt="Hermes install docs"></div>
+  </div>
+  <p class="src">hermes-agent.nousresearch.com/docs/getting-started/installation</p>
+</section>
+
+<!-- ============ 3 · MODEL SETUP ============ -->
+<section class="scene" data-chapter="Model setup">
+  <span class="kicker">the part everyone gets stuck on</span>
+  <h1>Model setup is three decisions</h1>
+  <svg width="1420" height="400" viewBox="0 0 1420 400" style="margin-top:40px">
+    <line class="ink thin draw" x1="200" y1="130" x2="1220" y2="130"/>
+    <g text-anchor="middle">
+      <g data-step="1" class="pop"><circle class="ink fill-paper" cx="200" cy="130" r="58" style="stroke-width:2"/><text x="200" y="142" font-size="36">1</text><text x="200" y="250" font-size="32">Engine</text><text x="200" y="290" class="t-mono" font-size="18">llama.cpp</text></g>
+      <g data-step="2" class="pop"><circle class="ink fill-paper" cx="710" cy="130" r="58" style="stroke-width:2"/><text x="710" y="142" font-size="36">2</text><text x="710" y="250" font-size="32">A model that fits</text><text x="710" y="290" class="t-mono" font-size="18">your RAM / VRAM</text></g>
+      <g data-step="3" class="pop"><circle class="ink acc fill-soft" cx="1220" cy="130" r="58" style="stroke-width:2.4"/><text x="1220" y="142" font-size="36" class="accent">3</text><text x="1220" y="250" font-size="32" class="accent">Plug it into Hermes</text><text x="1220" y="290" class="t-mono" font-size="18">hermes model</text></g>
+    </g>
+  </svg>
+</section>
+
+<section class="scene">
+  <h1>1 · The engine: <mark data-fx="3">llama.cpp</mark></h1>
+  <svg width="1420" height="400" viewBox="0 0 1420 400">
+    <g class="draw sketch" data-step="1"><rect class="ink" x="40" y="230" width="1020" height="110" rx="6" style="stroke-width:2.4"/></g>
+    <text x="550" y="290" text-anchor="middle" font-size="40" data-step="1">llama.cpp</text>
+    <text x="550" y="325" text-anchor="middle" class="t-mono" font-size="17" data-step="1">Metal · CUDA · Vulkan · CPU · runs GGUF models</text>
+
+    <g class="draw" data-step="2"><rect class="ink" x="40" y="40" width="290" height="90" rx="6"/><rect class="ink" x="770" y="40" width="290" height="90" rx="6"/>
+      <path class="ink thin" d="M185 130 V222 M177 210 L185 222 L193 210 M915 130 V222 M907 210 L915 222 L923 210"/></g>
+    <text x="185" y="95" text-anchor="middle" font-size="28" data-step="2">Ollama</text>
+    <text x="915" y="95" text-anchor="middle" font-size="28" data-step="2">LM Studio</text>
+    <text x="200" y="185" class="t-it" font-size="18" data-step="2">built on</text>
+
+    <g class="draw" data-step="3"><rect class="ink acc fill-soft" x="395" y="40" width="310" height="90" rx="6" style="stroke-width:2.4"/>
+      <path class="ink acc" d="M550 130 V222 M542 210 L550 222 L558 210"/></g>
+    <text x="550" y="82" text-anchor="middle" font-size="26" class="accent" data-step="3">Hermes</text>
+    <text x="550" y="112" text-anchor="middle" class="t-mono" font-size="16" data-step="3">“Local models”</text>
+
+    <g data-step="4">
+      <text x="1150" y="80" class="t-it" font-size="19">also good</text>
+      <text x="1150" y="130" font-size="25" class="muted">MLX / oMLX</text>
+      <text x="1150" y="158" class="t-mono" font-size="15">Apple only · MLX models</text>
+      <text x="1150" y="230" font-size="25" class="muted">vLLM</text>
+      <text x="1150" y="258" class="t-mono" font-size="15">NVIDIA servers, many users</text>
+    </g>
+  </svg>
+  <div class="row" data-step="5" style="gap:24px;margin-top:6px">
+    <div class="card soft" style="width:440px"><span class="label accent">OpenAI-compatible</span><div class="small" style="color:var(--ink)">Hermes talks to <code>localhost:8080/v1</code></div></div>
+    <div class="card soft" style="width:440px"><span class="label accent">--jinja</span><div class="small" style="color:var(--ink)">tool calls through the model's chat template</div></div>
+    <div class="card soft" style="width:440px"><span class="label accent">-c 65536</span><div class="small" style="color:var(--ink)">you control the context window</div></div>
+  </div>
+  <p class="src">llama.cpp server README · Ollama &amp; LM Studio docs · Hermes local-models docs</p>
+</section>
+
+<section class="scene">
+  <h1>2 · Will it fit? Do the math once.</h1>
+  <p class="lede" style="font-size:50px;margin-top:50px"><span class="glow" data-fx="1">weights</span> + <span class="glow" data-fx="2">KV cache</span> + ~1 GB <span class="muted">≤</span> <span class="glow" data-fx="3">GPU memory</span></p>
+  <div class="row" style="gap:40px;margin-top:70px">
+    <div class="col" data-step="1" style="width:440px;gap:8px"><span class="label">weights</span><span class="body">params × bits ÷ 8</span><span class="small">Q4_K_M ≈ <mark>0.6 GB per billion params</mark></span></div>
+    <div class="col" data-step="2" style="width:440px;gap:8px"><span class="label">kv cache</span><span class="body">grows with the context</span><span class="small">Hermes needs <mark>≥ 64K tokens</mark></span></div>
+    <div class="col" data-step="3" style="width:440px;gap:8px"><span class="label">gpu memory</span><span class="body">Mac ≈ 75% of RAM</span><span class="small">NVIDIA: your VRAM</span></div>
+  </div>
+  <p class="src">Q4_K_M = 4.89 bits/weight (llama.cpp quantize README) · Mac GPU limit: Metal recommendedMaxWorkingSetSize</p>
+</section>
+
+<section class="scene">
+  <span class="kicker">example · Qwen3.8-27B · UD-Q4_K_M · 64K context · q8_0 KV cache</span>
+  <h1>Does it fit on my laptop?</h1>
+  <svg width="1420" height="480" viewBox="0 0 1420 480" style="margin-top:10px">
+    <path class="ink thin draw" d="M60 250 H1360"/>
+    <g font-size="15" text-anchor="middle">
+      <text class="t-mono" x="60" y="276">0</text><text class="t-mono" x="260" y="276">4</text><text class="t-mono" x="460" y="276">8</text><text class="t-mono" x="660" y="276">12</text><text class="t-mono" x="860" y="276">16</text><text class="t-mono" x="1060" y="276">20</text><text class="t-mono" x="1235" y="276">24</text><text class="t-mono" x="1360" y="276">GB</text>
+    </g>
+    <rect class="ink draw" data-step="1" x="60" y="150" width="805" height="80" style="fill:url(#hatch)"/>
+    <text x="462" y="135" text-anchor="middle" font-size="22" data-step="1">weights 16.1 GB</text>
+    <rect class="ink acc fill-soft draw" data-step="2" x="865" y="150" width="115" height="80"/>
+    <text x="922" y="135" text-anchor="middle" font-size="20" class="accent" data-step="2">KV 2.3</text>
+    <rect class="ink draw" data-step="3" x="980" y="150" width="40" height="80" style="fill:var(--faint)"/>
+    <text x="1000" y="105" text-anchor="middle" font-size="18" class="muted" data-step="3">+0.8</text>
+    <g data-step="3"><text x="1040" y="198" font-size="30">= 19.4 GB</text><text x="1040" y="222" class="t-mono" font-size="14">measured</text></g>
+
+    <g data-step="4"><path class="ink warn draw" data-step="4" d="M960 70 V300" style="stroke-width:2.4"/>
+      <text x="950" y="330" text-anchor="end" font-size="22" class="warn">24 GB Mac · GPU gets ~18 GB · ✗</text></g>
+    <g data-step="5"><path class="ink acc draw" data-step="5" d="M1260 70 V370" style="stroke-width:2.4"/>
+      <text x="1250" y="405" text-anchor="end" font-size="22" class="accent">32 GB Mac or 24 GB NVIDIA · ✓ fits</text></g>
+  </svg>
+  <p class="src">measured with llama-fit-params on llama.cpp b11429 · unsloth/Qwen3.8-27B-GGUF</p>
+</section>
+
+<section class="scene">
+  <h1>Dense vs MoE</h1>
+  <svg width="1420" height="380" viewBox="0 0 1420 380">
+    <text x="230" y="40" class="t-mono" font-size="16">memory needed · total params</text>
+    <text x="900" y="40" class="t-mono" font-size="16" data-step="3">read per token · active params → speed</text>
+    <text x="0" y="118" font-size="24">Qwen3.8-27B</text><text x="0" y="144" class="t-mono" font-size="14">dense · 27B</text>
+    <text x="0" y="238" font-size="24">Qwen3.6-35B-A3B</text><text x="0" y="264" class="t-mono" font-size="14">MoE · 3B active</text>
+    <rect class="ink draw" data-step="1" x="230" y="90" width="412" height="60" style="fill:url(#hatch)"/>
+    <text x="652" y="128" font-size="20" data-step="1">16.5 GB</text>
+    <rect class="ink draw" data-step="2" x="230" y="210" width="552" height="60" style="fill:url(#hatch)"/>
+    <text x="792" y="248" font-size="20" data-step="2">22.1 GB</text>
+    <rect class="ink draw" data-step="3" x="900" y="90" width="412" height="60" style="fill:url(#hatch)"/>
+    <text x="1322" y="128" font-size="20" data-step="3">16.5</text>
+    <rect class="ink acc fill-soft draw" data-step="3" x="900" y="210" width="50" height="60"/>
+    <text x="962" y="248" font-size="20" class="accent" data-step="3">~2 GB</text>
+  </svg>
+  <p class="lede" data-step="4" style="font-size:40px">MoE: more memory, <mark>much faster</mark>.</p>
+  <p class="small" data-step="4">Generation speed ≈ memory bandwidth ÷ bytes read per token.</p>
+  <p class="src">Hugging Face model cards (Qwen) · GGUF sizes: unsloth UD-Q4_K_M</p>
+</section>
+
+<section class="scene">
+  <h1>What to run <span class="label">· Oct 2026 · 64K context</span></h1>
+  <div class="row" style="gap:70px;margin-top:10px">
+    <svg width="980" height="560" viewBox="0 0 980 560">
+      <path class="ink faint draw" d="M20 20 V540 M960 20 V540"/>
+      <g data-step="5"><path class="ink draw" data-step="5" d="M20 90 H960"/><text x="40" y="76" class="t-mono accent" font-size="18">128 GB</text><text x="200" y="76" font-size="25">Qwen3.8 Flash Next · gpt-oss-120b</text><text x="940" y="76" text-anchor="end" class="t-mono" font-size="15">90 / 63 GB</text></g>
+      <g data-step="4"><path class="ink draw" data-step="4" d="M20 190 H960"/><text x="40" y="176" class="t-mono accent" font-size="18">64 GB</text><text x="200" y="176" font-size="25">Qwen3.8-27B at Q8_0</text><text x="940" y="176" text-anchor="end" class="t-mono" font-size="15">28.6 GB</text></g>
+      <g data-step="3"><path class="ink draw" data-step="3" d="M20 300 H960"/><text x="40" y="250" class="t-mono accent" font-size="18">24–32 GB</text><text x="200" y="250" font-size="25">Qwen3.6-35B-A3B <tspan class="muted" font-size="19">fast</tspan></text><text x="200" y="286" font-size="25">Qwen3.8-27B <tspan class="muted" font-size="19">smarter, slower</tspan></text><text x="940" y="250" text-anchor="end" class="t-mono" font-size="15">22.1 GB</text><text x="940" y="286" text-anchor="end" class="t-mono" font-size="15">16.5 GB</text></g>
+      <g data-step="2"><path class="ink draw" data-step="2" d="M20 410 H960"/><text x="40" y="396" class="t-mono accent" font-size="18">16 GB</text><text x="200" y="396" font-size="25">Qwen3.5-9B</text><text x="940" y="396" text-anchor="end" class="t-mono" font-size="15">5.7 GB</text></g>
+      <g data-step="1"><path class="ink draw" data-step="1" d="M20 520 H960"/><text x="40" y="506" class="t-mono accent" font-size="18">8 GB</text><text x="200" y="506" font-size="25">Qwen3.5-4B</text><text x="940" y="506" text-anchor="end" class="t-mono" font-size="15">2.7 GB</text></g>
+    </svg>
+    <div class="col call" data-step="6" style="width:360px;margin-top:180px">
+      <b>what I run</b>
+      <span>Qwen3.8-27B<br>UD-Q4_K_M on an M3 Max</span>
+    </div>
+  </div>
+  <p class="src">tier = memory the GPU can use · GGUF sizes from Hugging Face (unsloth, ggml-org)</p>
+</section>
+
+<section class="scene">
+  <h1>Check before you download</h1>
+  <div class="fig shot" data-step="1" style="left:90px;top:150px;width:700px"><img src="img/web-canirun-tier.png" alt="canirun.ai tier list"></div>
+  <p class="label abs" data-step="1" style="left:90px;top:592px">canirun.ai/tier · grades models for your machine, S → F</p>
+  <div class="fig shot" data-step="2" style="left:860px;top:150px;width:430px"><img src="img/crop-hf-hardware.png" alt="Hugging Face hardware compatibility">
+    <svg class="ov" viewBox="0 0 965 972"><rect class="ink acc draw" data-step="3" x="392" y="550" width="260" height="62" rx="12" style="stroke-width:7"/></svg></div>
+  <p class="label abs" data-step="2" style="left:860px;top:592px">Hugging Face · hardware compatibility</p>
+  <div class="call abs" data-step="3" style="left:1320px;top:360px;width:190px"><b>UD-Q4_K_M</b><span style="font-size:21px">22.1 GB file ≈ 22 GB of memory</span></div>
+  <p class="body abs" data-step="3" style="left:90px;top:650px">File size on Hugging Face ≈ <mark>memory for the weights</mark>.</p>
+</section>
+
+<!-- ============ 4 · PLUG IT IN ============ -->
+<section class="scene" data-chapter="Plug it in">
+  <h1>3 · Plug it in: <code>hermes model</code></h1>
+  <div class="fig term" style="left:90px;top:150px;width:880px"><img src="img/term-model-picker.png" alt="hermes model provider picker">
+    <svg class="ov" viewBox="0 0 1580 858">
+      <rect class="hl draw" data-step="1" x="26" y="614" width="1452" height="46" rx="8"/>
+      <text class="hl-t" x="1500" y="650" font-size="38" data-step="1">A</text>
+      <rect class="hl draw" data-step="2" x="26" y="655" width="820" height="46" rx="8"/>
+      <text class="hl-t" x="870" y="692" font-size="38" data-step="2">B</text>
+      <rect class="hl draw" data-step="3" x="26" y="452" width="1235" height="88" rx="8" style="stroke:#f5c451"/>
+    </svg></div>
+  <div class="call abs" data-step="3" style="left:1010px;top:300px;width:500px"><b style="color:#b8860b">or attach a subscription</b><span style="font-size:22px">Claude · ChatGPT/Codex · Copilot · Nous Portal</span></div>
+  <div class="call abs" data-step="1" style="left:1010px;top:430px;width:500px"><b>A · local models</b><span>Hermes picks, downloads and runs a model for you.</span></div>
+  <div class="call abs" data-step="2" style="left:1010px;top:570px;width:500px"><b>B · custom endpoint</b><span>You run the server. Hermes connects to it.</span></div>
+</section>
+
+<section class="scene">
+  <h1>A · Local models: Hermes does it for you</h1>
+  <div class="fig term" style="left:90px;top:140px;width:1000px"><img src="img/term-local-models.png" alt="hermes model local models picker">
+    <svg class="ov" viewBox="0 0 1778 614">
+      <rect class="hl draw" data-step="1" x="26" y="128" width="966" height="86" rx="8"/>
+      <rect class="hl draw" data-step="2" x="26" y="452" width="1530" height="46" rx="8"/>
+    </svg></div>
+  <div class="call abs" data-step="1" style="left:1130px;top:180px;width:380px"><b>it measures your machine</b><span>memory, GPU, engine build</span></div>
+  <div class="call abs" data-step="2" style="left:1130px;top:340px;width:380px"><b>★ recommended</b><span>best model that fits fully in memory at ≥ 20 tok/s</span></div>
+  <svg class="abs" data-step="3" style="left:90px;top:530px" width="1420" height="100" viewBox="0 0 1420 100">
+    <g class="draw" data-step="3">
+      <rect class="ink" x="0" y="10" width="300" height="70" rx="6"/><rect class="ink" x="370" y="10" width="300" height="70" rx="6"/><rect class="ink" x="740" y="10" width="300" height="70" rx="6"/><rect class="ink acc fill-soft" x="1110" y="10" width="300" height="70" rx="6"/>
+      <path class="ink thin" d="M300 45 H362 M352 38 L362 45 L352 52 M670 45 H732 M722 38 L732 45 L722 52 M1040 45 H1102 M1092 38 L1102 45 L1092 52"/>
+    </g>
+    <g text-anchor="middle" font-size="21" data-step="3"><text x="150" y="52">installs llama.cpp</text><text x="520" y="52">downloads the GGUF</text><text x="890" y="52">starts the server</text><text x="1260" y="52" class="accent">sets the default</text></g>
+  </svg>
+  <p class="body abs" data-step="4" style="left:90px;top:660px;font-size:23px"><span class="warn">Mac under 32 GB or GPU under 24 GB → no ★.</span> Use path B with a smaller model.</p>
+</section>
+
+<section class="scene">
+  <h1>B · Serve it yourself</h1>
+  <div class="fig term" style="left:90px;top:150px;width:860px"><img src="img/term-llama-server.png" alt="llama-server serving Qwen3.8-27B">
+    <svg class="ov" viewBox="0 0 1364 534">
+      <rect class="hl draw" data-step="1" x="303" y="88" width="702" height="46" rx="8"/>
+      <rect class="hl draw" data-step="2" x="104" y="128" width="143" height="46" rx="8"/>
+      <rect class="hl draw" data-step="3" x="249" y="128" width="160" height="46" rx="8"/>
+      <rect class="hl draw" data-step="4" x="411" y="128" width="486" height="46" rx="8"/>
+      <rect class="hl draw" data-step="5" x="646" y="331" width="395" height="46" rx="8"/>
+      <rect class="hl draw" data-step="5" x="26" y="412" width="1032" height="86" rx="8"/>
+    </svg></div>
+  <p class="small abs" style="left:90px;top:520px">Install: <code>brew install llama.cpp</code> · Windows / Linux: prebuilt binaries on GitHub</p>
+  <div class="col abs" style="left:990px;top:150px;width:520px;gap:20px">
+    <div class="call" data-step="1"><b>-hf repo:quant</b><span>downloads the GGUF from Hugging Face</span></div>
+    <div class="call" data-step="2"><b>--jinja</b><span>tool calls</span></div>
+    <div class="call" data-step="3"><b>-c 65536</b><span>Hermes needs ≥ 64K context</span></div>
+    <div class="call" data-step="4"><b>-ctk/-ctv q8_0 · -fa on</b><span>KV cache at half the memory</span></div>
+    <div class="call" data-step="5"><b>curl …/v1/models</b><span>if this answers, Hermes can connect</span></div>
+  </div>
+</section>
+
+<section class="scene">
+  <h1>B · Point Hermes at it</h1>
+  <div class="fig term" style="left:90px;top:140px;width:860px"><img src="img/term-custom-endpoint.png" alt="hermes model custom endpoint wizard">
+    <svg class="ov" viewBox="0 0 1652 818">
+      <rect class="hl draw" data-step="1" x="899" y="169" width="449" height="46" rx="8"/>
+      <rect class="hl draw" data-step="2" x="26" y="250" width="1374" height="46" rx="8"/>
+      <rect class="hl draw" data-step="2" x="26" y="533" width="978" height="46" rx="8"/>
+      <rect class="hl draw" data-step="3" x="1043" y="614" width="107" height="46" rx="8"/>
+    </svg></div>
+  <div class="row abs" style="left:90px;top:600px;gap:34px">
+    <div class="call" data-step="1" style="width:270px"><b>① base URL</b><span style="font-size:21px">ends in <code>/v1</code></span></div>
+    <div class="call" data-step="2" style="width:270px"><b>② Hermes checks it</b><span style="font-size:21px">and finds the model</span></div>
+    <div class="call" data-step="3" style="width:270px"><b>③ context</b><span style="font-size:21px">65536 or more</span></div>
+  </div>
+  <div class="code abs" data-step="4" style="left:990px;top:140px;font-size:16.5px;width:520px"><span class="c"># ~/.hermes/config.yaml (excerpt)</span>
+model:
+  provider: <span class="a">custom</span>
+  default: unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M
+  base_url: <span class="a">http://localhost:8080/v1</span>
+custom_providers:
+  - name: Local (localhost:8080)
+    models:
+      unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M:
+        context_length: <span class="a">65536</span></div>
+  <p class="small abs" data-step="4" style="left:990px;top:470px;width:520px">Edit the file directly any time. <code>hermes model</code> just writes it for you.</p>
+</section>
+
+<section class="scene">
+  <h1>Same recipe, other servers</h1>
+  <div class="col" style="gap:40px;margin-top:40px">
+    <div class="row" data-step="1" style="gap:30px"><span class="body" style="width:170px">Ollama</span>
+      <div class="col" style="gap:8px"><div class="code" style="font-size:20px">OLLAMA_CONTEXT_LENGTH=65536 ollama serve</div><span class="small">→ <code>http://localhost:11434/v1</code> · its default context is 4K on small GPUs</span></div></div>
+    <div class="row" data-step="2" style="gap:30px"><span class="body" style="width:170px">LM Studio</span>
+      <div class="col" style="gap:8px"><div class="code" style="font-size:20px">hermes model  →  LM Studio</div><span class="small">→ <code>http://127.0.0.1:1234/v1</code> · set the context to 65536 when you load the model</span></div></div>
+    <div class="row" data-step="3" style="gap:30px"><span class="body" style="width:170px">vLLM</span>
+      <div class="col" style="gap:8px"><div class="code" style="font-size:20px">vllm serve &lt;model&gt; --max-model-len 65536 \
+  --enable-auto-tool-choice --tool-call-parser hermes</div><span class="small">→ <code>http://localhost:8000/v1</code> · NVIDIA servers</span></div></div>
+  </div>
+  <p class="src">Hermes docs: integrations/providers · local-ollama-setup</p>
+</section>
+
+<section class="scene">
+  <h1>Prefer a subscription?</h1>
+  <p class="body" style="font-size:28px;max-width:1420px">Same command, <code>hermes model</code> → Nous Portal · ChatGPT / Codex · Claude · GitHub Copilot</p>
+  <div class="col" style="gap:30px;margin-top:50px;width:760px">
+    <div data-step="1" class="col" style="gap:8px"><span class="label">switch mid-session</span><div class="code">/model &lt;name&gt;</div></div>
+    <div data-step="2" class="col" style="gap:8px"><span class="label">local first, cloud as backup</span><div class="code">hermes fallback add</div></div>
+    <div data-step="3" class="col" style="gap:8px"><span class="label">check what's active</span><div class="code">hermes status</div></div>
+  </div>
+  <div class="fig term" data-step="3" style="left:930px;top:300px;width:560px"><img src="img/term-status.png" alt="hermes status"></div>
+</section>
+
+<section class="scene">
+  <h1>Four things that break it</h1>
+  <div class="row" style="gap:80px;margin-top:30px">
+    <div class="col" style="gap:44px;width:640px">
+      <div data-step="1" class="col" style="gap:6px"><span class="label accent">1 · context too small</span><span class="body">Hermes refuses to start below 64K.</span><span class="small">→ <code>-c 65536</code> · Ollama: <code>OLLAMA_CONTEXT_LENGTH</code></span></div>
+      <div data-step="2" class="col" style="gap:6px"><span class="label accent">2 · no tool calls</span><span class="body">The model writes text instead of calling tools.</span><span class="small">→ <code>--jinja</code> · vLLM: <code>--tool-call-parser</code></span></div>
+    </div>
+    <div class="col" style="gap:44px;width:640px">
+      <div data-step="3" class="col" style="gap:6px"><span class="label accent">3 · endpoint 404</span><span class="body">The base URL is missing <code>/v1</code>.</span><span class="small">→ <code>http://localhost:8080/v1</code></span></div>
+      <div data-step="4" class="col" style="gap:6px"><span class="label accent">4 · wrong model</span><span class="body">Picking <s data-fx="5">a “Hermes 4” model</s> for Hermes.</span><span class="small">Nous Hermes 3/4 are chat models, not agentic. Use Qwen, Gemma, GLM or gpt-oss.</span></div>
+    </div>
+  </div>
+  <p class="src">error messages and warnings from the Hermes v0.22.1 source</p>
+</section>
+
+<!-- ============ 5 · CHAT & TOOLS ============ -->
+<section class="scene" data-chapter="Chat &amp; tools">
+  <h1>Run <code>hermes</code></h1>
+  <div class="fig term" style="left:90px;top:130px;width:720px"><img src="img/term-chat-banner.png" alt="Hermes chat banner">
+    <svg class="ov" viewBox="0 0 2322 1910">
+      <rect class="hl draw" data-step="1" x="86" y="1098" width="776" height="48" rx="10" style="stroke-width:8"/>
+      <rect class="hl draw" data-step="2" x="1108" y="408" width="1100" height="416" rx="10" style="stroke-width:8"/>
+      <rect class="hl draw" data-step="3" x="1108" y="854" width="1100" height="580" rx="10" style="stroke-width:8"/>
+    </svg></div>
+  <div class="call abs" data-step="2" style="left:860px;top:220px;width:640px"><b>tools</b><span>files, terminal, web, browser, memory, cron, delegation…</span></div>
+  <div class="call abs" data-step="3" style="left:860px;top:360px;width:640px"><b>skills</b><span>58 built in: GitHub, Obsidian, Google Workspace, PDFs…</span></div>
+  <div class="call abs" data-step="1" style="left:860px;top:500px;width:640px"><b>model</b><span>the local Qwen you just served</span></div>
+</section>
+
+<section class="scene">
+  <h1>Give it a task</h1>
+  <div class="fig term" style="left:90px;top:130px;width:700px"><img src="img/term-chat-run.png" alt="Hermes summarizing a repo with tool calls">
+    <svg class="ov" viewBox="0 0 1658 1384">
+      <rect class="hl draw" data-step="1" x="26" y="250" width="820" height="166" rx="10" style="stroke-width:6"/>
+      <rect class="hl draw" data-step="1" x="26" y="530" width="820" height="176" rx="10" style="stroke-width:6"/>
+      <rect class="hl draw" data-step="2" x="20" y="695" width="1618" height="660" rx="10" style="stroke-width:6"/>
+    </svg></div>
+  <div class="call abs" style="left:840px;top:150px;width:670px"><b>prompt</b><span>“Summarize this repo in 5 short bullets.”</span></div>
+  <div class="call abs" data-step="1" style="left:840px;top:290px;width:670px"><b>tool calls</b><span>find · ls · read README.md — it looks before it answers</span></div>
+  <div class="call abs" data-step="2" style="left:840px;top:470px;width:670px"><b>answer</b><span>Grounded in the files it read. Local model, <mark>$0</mark>.</span></div>
+</section>
+
+<section class="scene">
+  <h1>Tools: turn on what you need</h1>
+  <div class="fig term" style="left:90px;top:130px;width:490px"><img src="img/term-tools.png" alt="hermes tools list"></div>
+  <p class="body abs" style="left:650px;top:140px;width:860px;font-size:25px">Toggle with <code>hermes tools</code>, or <code>/tools</code> in chat. Widen in this order:</p>
+  <div class="col abs" style="left:650px;top:220px;width:860px;gap:14px">
+    <div class="rung" data-step="4" style="border-color:var(--warn)"><b style="color:var(--warn)">4 · irreversible</b><span>delete, send, spend · worst case: you explain it to someone</span></div>
+    <div class="rung" data-step="3"><b>3 · reversible</b><span>edits inside git · worst case: <code>git checkout .</code></span></div>
+    <div class="rung" data-step="2"><b>2 · drafts</b><span>new files, proposed commands · worst case: a junk file</span></div>
+    <div class="rung" data-step="1" style="border-color:var(--accent);background:var(--accent-soft)"><b style="color:var(--accent)">1 · read-only</b><span>read files, search · worst case: wasted tokens</span></div>
+  </div>
+</section>
+
+<section class="scene">
+  <h1>Integrations are plugins</h1>
+  <div class="fig term" style="left:90px;top:150px;width:1000px"><img src="img/term-plugin.png" alt="hermes plugins enable google_meet"></div>
+  <div class="abs" data-step="1" style="left:90px;top:370px;width:1400px">
+    <span class="label">google_meet gives the agent new tools</span><br><br>
+    <span class="chip">meet_join</span><span class="chip">meet_say</span><span class="chip">meet_leave</span><span class="chip">live captions</span>
+  </div>
+  <div class="row abs" data-step="2" style="left:90px;top:560px;gap:60px">
+    <div class="call"><b>more plugins</b><span><code>hermes plugins browse</code></span></div>
+    <div class="call"><b>any MCP server</b><span><code>hermes mcp</code></span></div>
+  </div>
+</section>
+
+<section class="scene">
+  <h1>Skills: procedures it can reuse</h1>
+  <div class="fig term" style="left:90px;top:140px;width:720px"><img src="img/term-skills.png" alt="hermes skills list"></div>
+  <svg class="abs" data-step="1" style="left:880px;top:140px" width="630" height="330" viewBox="0 0 630 330">
+    <g class="draw" data-step="1"><path class="ink" d="M10 30 H60 L72 44 H140 V90 H10 Z"/><path class="ink thin" d="M40 90 V290 M40 150 H80 M40 220 H80 M40 290 H80"/></g>
+    <text x="160" y="76" class="t-mono" font-size="22" data-step="1">my-skill/</text>
+    <text x="96" y="158" font-size="23" data-step="1"><tspan font-family="var(--mono)" class="accent">SKILL.md</tspan><tspan class="muted" font-size="19">  name · when to use · steps</tspan></text>
+    <text x="96" y="228" font-size="23" data-step="1"><tspan font-family="var(--mono)">scripts/</tspan><tspan class="muted" font-size="19">  code it can run</tspan></text>
+    <text x="96" y="298" font-size="23" data-step="1"><tspan font-family="var(--mono)">references/</tspan><tspan class="muted" font-size="19">  docs it reads on demand</tspan></text>
+  </svg>
+  <div class="call abs" data-step="2" style="left:90px;top:540px;width:680px"><b>open standard</b><span>Same <code>SKILL.md</code> format as Claude Code · agentskills.io</span></div>
+  <div class="call abs" data-step="3" style="left:880px;top:540px;width:630px"><b>it learns</b><span>After a hard task, Hermes <mark>writes a new skill</mark> itself.</span></div>
+</section>
+
+<section class="scene">
+  <h1>Cron: it works while you sleep</h1>
+  <div class="fig term" style="left:90px;top:130px;width:770px"><img src="img/term-cron.png" alt="hermes cron create and list"></div>
+  <div class="col abs" style="left:910px;top:140px;width:600px;gap:26px">
+    <div class="call" data-step="1"><b>0 8 * * *</b><span>daily AI news digest → Telegram</span></div>
+    <div class="call" data-step="2"><b>0 21 * * *</b><span>Apple Notes → Obsidian</span></div>
+    <div class="call" data-step="3"><b>30 8 * * 1-5</b><span>standup prep from yesterday's git log</span></div>
+    <div class="call" data-step="4"><b>0 3 * * *</b><span>nightly health check of your model server</span></div>
+  </div>
+  <p class="body abs" data-step="5" style="left:90px;top:580px;width:1400px">Or just ask in chat: <code>/cron</code> <span class="muted">“every weekday at 8, summarize my calendar”</span></p>
+</section>
+
+<!-- ============ 6 · MEMORY ============ -->
+<section class="scene" data-chapter="Memory">
+  <h1>Memory is three small files</h1>
+  <svg width="1420" height="470" viewBox="0 0 1420 470">
+    <g data-step="1"><g class="draw" data-step="1"><path class="ink acc" d="M190 20 H270 L300 50 V160 H190 Z M270 20 V50 H300 M210 80 H280 M210 104 H280 M210 128 H260"/></g>
+      <text x="245" y="210" text-anchor="middle" font-size="26" font-family="var(--mono)" class="accent">MEMORY.md</text>
+      <text x="245" y="248" text-anchor="middle" font-size="22">what it needs every session</text>
+      <text x="245" y="278" text-anchor="middle" class="t-mono" font-size="15">environment · conventions · lessons</text></g>
+    <g data-step="2"><g class="draw" data-step="2"><path class="ink acc" d="M655 20 H735 L765 50 V160 H655 Z M735 20 V50 H765 M675 80 H745 M675 104 H745 M675 128 H725"/></g>
+      <text x="710" y="210" text-anchor="middle" font-size="26" font-family="var(--mono)" class="accent">USER.md</text>
+      <text x="710" y="248" text-anchor="middle" font-size="22">who you are</text>
+      <text x="710" y="278" text-anchor="middle" class="t-mono" font-size="15">preferences · style · expectations</text></g>
+    <g data-step="3"><g class="draw" data-step="3"><path class="ink" d="M1120 20 H1200 L1230 50 V160 H1120 Z M1200 20 V50 H1230 M1140 80 H1210 M1140 104 H1210 M1140 128 H1190"/></g>
+      <text x="1175" y="210" text-anchor="middle" font-size="26" font-family="var(--mono)">SOUL.md</text>
+      <text x="1175" y="248" text-anchor="middle" font-size="22">who it is</text>
+      <text x="1175" y="278" text-anchor="middle" class="t-mono" font-size="15">tone · values · boundaries</text></g>
+    <text x="477" y="320" text-anchor="middle" class="t-it" font-size="19" data-step="2">written by Hermes</text>
+    <text x="1175" y="320" text-anchor="middle" class="t-it" font-size="19" data-step="3">written by you</text>
+    <g class="draw" data-step="4"><path class="ink thin" d="M245 340 V360 H1175 V340 M710 360 V390 M702 380 L710 392 L718 380"/><rect class="ink acc fill-soft" x="440" y="396" width="540" height="58" rx="6"/></g>
+    <text x="710" y="433" text-anchor="middle" font-size="23" data-step="4">in the system prompt, every session</text>
+  </svg>
+  <p class="small" data-step="5">Small on purpose (~2,200 + ~1,375 characters). When full, it consolidates.</p>
+  <p class="src">hermes-agent.nousresearch.com/docs/user-guide/features/memory</p>
+</section>
+
+<section class="scene">
+  <h1>Memory in action</h1>
+  <div class="fig term" style="left:90px;top:130px;width:1060px"><img src="img/term-memory-chat.png" alt="Hermes saving memories">
+    <svg class="ov" viewBox="0 0 2128 656"><rect class="hl draw" data-step="1" x="26" y="371" width="1450" height="128" rx="10" style="stroke-width:6"/></svg></div>
+  <div class="call abs" data-step="1" style="left:1180px;top:200px;width:330px"><b>it decides</b><span>preferences → USER.md<br>environment → MEMORY.md</span></div>
+  <div class="fig term" data-step="2" style="left:90px;top:490px;width:500px"><img src="img/term-memory-files.png" alt="memory files on disk"></div>
+  <div class="call abs" data-step="2" style="left:640px;top:540px;width:600px"><b>next session</b><span>both files load into the prompt. Nothing to re-explain.</span></div>
+</section>
+
+<section class="scene">
+  <h1>Give it a personality: <code>SOUL.md</code></h1>
+  <div class="code abs" style="left:90px;top:140px;width:820px;font-size:19px"><span class="c"># ~/.hermes/SOUL.md</span>
+## Who you are
+A direct, technically careful collaborator.
+
+## How you talk
+- Lead with the answer.
+- <mark data-fx="1">Never open with "You're absolutely right".</mark>
+- Disagree in one sentence, with the reason.
+
+## Boundaries
+- Show destructive commands before running them.
+- Say "I don't know" instead of guessing.</div>
+  <div class="col abs" style="left:980px;top:200px;width:530px;gap:30px">
+    <p class="lede" data-step="2" style="font-size:40px">Personality is a file.</p>
+    <p class="body" data-step="2">Swap the model, <mark>keep the soul</mark>.</p>
+    <p class="small" data-step="2">Starter: <code>assets/SOUL.md</code> in the course repo</p>
+  </div>
+</section>
+
+<!-- ============ 7 · SECOND BRAIN ============ -->
+<section class="scene" data-chapter="Second brain">
+  <h1>Obsidian as the second brain</h1>
+  <div class="col" style="gap:34px;margin-top:30px;width:600px">
+    <div class="call" data-step="1"><b>1 · create a vault</b><span>a folder of plain markdown files</span></div>
+    <div class="call" data-step="2"><b>2 · tell Hermes where it is</b><span>“my notes live in ~/notes” → saved to memory</span></div>
+    <div class="call" data-step="3"><b>3 · use the obsidian skill</b><span>built in: search, read, write and link notes</span></div>
+  </div>
+  <div class="fig shot" style="left:760px;top:150px;width:750px"><img src="img/web-obsidian.png" alt="Obsidian"></div>
+  <p class="src">obsidian.md</p>
+</section>
+
+<section class="scene">
+  <h1>What to save there</h1>
+  <div class="row" style="gap:36px;margin-top:20px">
+    <div class="col card" data-step="1" style="width:440px;gap:14px"><span class="label accent">capture</span><span class="body">meeting notes</span><span class="body">research reports &amp; summaries</span><span class="body">web clippings</span><span class="body">daily notes</span></div>
+    <div class="col card" data-step="2" style="width:440px;gap:14px"><span class="label accent">build</span><span class="body">project files</span><span class="body">PRDs for apps &amp; prototypes</span><span class="body">workflows &amp; SOPs</span><span class="body">decisions log</span></div>
+    <div class="col card" data-step="3" style="width:440px;gap:14px"><span class="label accent">think</span><span class="body">concept &amp; synthesis pages</span><span class="body">atomic / evergreen notes</span><span class="body">session memory</span></div>
+  </div>
+  <p class="body" data-step="4" style="margin-top:40px">Rule of thumb: if you'll want it in <mark>three months</mark>, it goes in the vault.</p>
+</section>
+
+<section class="scene">
+  <h1>Meeting notes on autopilot</h1>
+  <svg width="1420" height="330" viewBox="0 0 1420 330" style="margin-top:20px">
+    <g class="draw" data-step="1"><path class="ink" d="M60 60 H130 L148 80 H250 V190 H60 Z"/></g>
+    <text x="155" y="240" text-anchor="middle" font-size="22" data-step="1">Meet Recordings</text>
+    <text x="155" y="270" text-anchor="middle" class="t-mono" font-size="15" data-step="1">Google Drive folder</text>
+    <g class="draw" data-step="2"><path class="ink thin" d="M265 125 H415 M405 117 L415 125 L405 133"/><circle class="ink" cx="500" cy="125" r="65"/><path class="ink" d="M500 85 V125 L530 145"/></g>
+    <text x="500" y="240" text-anchor="middle" font-size="22" data-step="2">cron · every evening</text>
+    <g class="draw" data-step="3"><path class="ink thin" d="M580 125 H730 M720 117 L730 125 L720 133"/><rect class="ink acc fill-soft" x="745" y="60" width="230" height="130" rx="8" style="stroke-width:2.4"/></g>
+    <text x="860" y="135" text-anchor="middle" font-size="30" class="accent" data-step="3">☤ Hermes</text>
+    <text x="860" y="240" text-anchor="middle" font-size="22" data-step="3">summary + action items</text>
+    <g class="draw" data-step="4"><path class="ink thin" d="M990 125 H1140 M1130 117 L1140 125 L1130 133"/><path class="ink" d="M1160 50 H1250 L1280 80 V200 H1160 Z M1250 50 V80 H1280 M1180 110 H1260 M1180 135 H1260 M1180 160 H1240"/></g>
+    <text x="1220" y="240" text-anchor="middle" font-size="22" data-step="4">a note in the vault</text>
+    <text x="1220" y="270" text-anchor="middle" class="t-mono" font-size="15" data-step="4">linked to “Project - …”</text>
+  </svg>
+  <div class="code" data-step="5" style="font-size:18px;margin-top:20px">hermes cron create "0 19 * * *" "Turn new recordings in ~/Meet Recordings into meeting notes in ~/notes" --skill obsidian</div>
+</section>
+
+<!-- ============ 8 · MESSAGING ============ -->
+<section class="scene" data-chapter="Messaging">
+  <h1>Talk to it from your phone</h1>
+  <svg width="1420" height="170" viewBox="0 0 1420 170">
+    <g class="draw"><rect class="ink" x="40" y="20" width="70" height="125" rx="12"/><path class="ink thin" d="M65 32 H85 M68 130 H88"/></g>
+    <text x="75" y="166" text-anchor="middle" class="t-mono" font-size="14">your phone</text>
+    <g class="draw"><path class="ink thin" d="M130 82 H330 M320 74 L330 82 L320 90 M140 74 L130 82 L140 90"/></g>
+    <text x="230" y="68" text-anchor="middle" class="t-it" font-size="18">WhatsApp</text>
+    <g class="draw"><rect class="ink acc fill-soft" x="345" y="42" width="280" height="80" rx="6" style="stroke-width:2.2"/></g>
+    <text x="485" y="92" text-anchor="middle" font-family="var(--mono)" font-size="21" class="accent">hermes gateway</text>
+    <g class="draw"><path class="ink thin" d="M640 82 H840 M830 74 L840 82 L830 90 M650 74 L640 82 L650 90"/><path class="ink" d="M870 30 H1070 V125 H870 Z M845 140 H1095 L1080 125 H860 Z"/></g>
+    <text x="970" y="85" text-anchor="middle" font-size="20">Hermes +</text><text x="970" y="110" text-anchor="middle" font-size="20">local model</text>
+  </svg>
+  <div class="col abs" style="left:90px;top:340px;width:800px;gap:24px">
+    <div class="call" data-step="1"><b>hermes whatsapp</b><span>pick bot or self-chat, scan the QR (Linked Devices)</span></div>
+    <div class="call" data-step="2"><b>WHATSAPP_ALLOWED_USERS=&lt;your number&gt;</b><span>everyone else gets ignored</span></div>
+    <div class="call" data-step="3"><b>hermes gateway install</b><span>runs in the background, survives reboots</span></div>
+    <p class="body warn" data-step="4" style="font-size:23px">Unofficial bridge: use a dedicated number.</p>
+  </div>
+  <div class="fig shot" data-step="4" style="left:1040px;top:330px;width:460px"><img src="img/crop-whatsapp.png" alt="Hermes WhatsApp docs"></div>
+  <p class="src">hermes-agent.nousresearch.com/docs/user-guide/messaging/whatsapp</p>
+</section>
+
+<!-- ============ 9 · USING IT ============ -->
+<section class="scene" data-chapter="Using it">
+  <h1>Workflow tips</h1>
+  <div style="display:grid;grid-template-columns:690px 690px;gap:36px 40px;margin-top:30px">
+    <div class="card row" data-step="1" style="width:690px;height:200px;gap:28px;align-items:center">
+      <svg width="90" height="90" viewBox="0 0 100 100"><g class="draw" data-step="1"><path class="ink" d="M25 10 H65 L80 25 V90 H25 Z M65 10 V25 H80 M35 45 H70 M35 58 H70 M35 71 H58"/></g></svg>
+      <div class="call" style="width:520px"><b>1 · front-load context</b><span>Paste the error, the path, the screenshot (Ctrl+V). Then ask.</span></div>
+    </div>
+    <div class="card row" data-step="2" style="width:690px;height:200px;gap:28px;align-items:center">
+      <svg width="90" height="90" viewBox="0 0 100 100"><g class="draw" data-step="2"><path class="ink" d="M80 50 A30 30 0 1 1 65 24 M58 14 L67 24 L55 30"/></g></svg>
+      <div class="call" style="width:520px"><b>2 · resume, don't restart</b><span><code>hermes -c</code> picks up the last session.</span></div>
+    </div>
+    <div class="card row" data-step="3" style="width:690px;height:200px;gap:28px;align-items:center">
+      <svg width="90" height="90" viewBox="0 0 100 100"><g class="draw" data-step="3"><circle class="ink acc" cx="50" cy="50" r="14"/><path class="ink acc" d="M50 18 V28 M50 72 V82 M18 50 H28 M72 50 H82 M27 27 L34 34 M66 66 L73 73 M27 73 L34 66 M66 34 L73 27"/><circle class="ink acc" cx="50" cy="50" r="26"/></g></svg>
+      <div class="call" style="width:520px"><b>3 · twice → skill · three times → cron</b><span>Repeated work becomes a procedure, then a schedule.</span></div>
+    </div>
+    <div class="card row" data-step="4" style="width:690px;height:200px;gap:28px;align-items:center">
+      <svg width="90" height="90" viewBox="0 0 100 100"><g class="draw" data-step="4"><path class="ink acc" d="M22 52 L42 72 L80 30"/></g></svg>
+      <div class="call" style="width:520px"><b>4 · start read-only</b><span>Give it more tools as it earns your trust.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="scene">
+  <h1>Is the local model good enough? Vibe-check it.</h1>
+  <div class="fig shot" style="left:90px;top:140px;width:780px"><img src="img/web-vibe-check.png" alt="Vibe check dataset browser"></div>
+  <div class="call abs" data-step="1" style="left:920px;top:140px;width:590px"><b>100 cases</b><span>real tasks from my own agent history</span></div>
+  <div class="call abs" data-step="2" style="left:920px;top:250px;width:590px"><b>each case</b><span>prompt · tools expected · pass criteria · failure modes</span></div>
+  <svg class="abs" data-step="3" style="left:920px;top:370px" width="590" height="250" viewBox="0 0 590 250">
+    <g font-size="15"><text class="t-mono" x="0" y="20">obsidian-vault</text><text class="t-mono" x="0" y="56">shell-automation</text><text class="t-mono" x="0" y="92">media-pipeline</text><text class="t-mono" x="0" y="128">code-edit</text><text class="t-mono" x="0" y="164">multi-step</text><text class="t-mono" x="0" y="200">search-retrieval</text>
+    </g>
+    <g class="draw" data-step="3">
+      <rect class="ink acc fill-soft" x="190" y="6" width="242" height="20"/><rect class="ink acc fill-soft" x="190" y="42" width="242" height="20"/><rect class="ink acc fill-soft" x="190" y="78" width="198" height="20"/><rect class="ink acc fill-soft" x="190" y="114" width="176" height="20"/><rect class="ink acc fill-soft" x="190" y="150" width="176" height="20"/><rect class="ink acc fill-soft" x="190" y="186" width="176" height="20"/>
+    </g>
+    <text x="0" y="240" class="t-it" font-size="18">+7 more categories · score each one, not one number</text>
+  </svg>
+  <p class="body abs" data-step="4" style="left:90px;top:650px">Swap the model. Keep the harness. <mark>Re-run.</mark></p>
+</section>
+
+<!-- ============ 10 · WRAP ============ -->
+<section class="scene" data-chapter="Wrap">
+  <h1>When to use what</h1>
+  <div class="row" style="gap:36px;margin-top:30px">
+    <div class="card hi col" data-step="1" style="width:440px;gap:12px"><span class="label accent">Hermes</span><span class="body">your standing personal agent</span><span class="small">memory · cron · messaging · any model</span></div>
+    <div class="card col" data-step="2" style="width:440px;gap:12px"><span class="label">Claude Code</span><span class="body">a deep coding session in one repo</span><span class="small">the most mature coding tooling</span></div>
+    <div class="card col" data-step="3" style="width:440px;gap:12px"><span class="label">OpenClaw</span><span class="body">the lightest CLI coding agent</span><span class="small">minimal setup</span></div>
+  </div>
+  <p class="lede" data-step="4" style="margin-top:70px;font-size:40px">Pick Hermes when the <mark>accumulated context</mark> is the point.</p>
+</section>
+
+<section class="scene">
+  <p class="lede" style="margin-top:170px;font-size:58px">Your model is swappable.</p>
+  <p class="lede" data-step="1" style="font-size:58px"><mark>Your context compounds.</mark></p>
+  <div class="row" data-step="2" style="gap:60px;margin-top:90px">
+    <div class="call"><b>course repo</b><span>github.com/EnkrateiaLucca/hermes-course</span></div>
+    <div class="call"><b>docs</b><span>hermes-agent.nousresearch.com/docs</span></div>
+  </div>
+</section>
+
+<!-- ===================== SCENES END ======================= -->
+  <div id="timeline"><div class="rail"></div><div class="fill"></div>
+    <div id="mascot"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7 12 C7 4.5 25 4.5 25 12 V22 C25 28.5 7 28.5 7 22 Z" style="fill:var(--paper)"/>
+      <path d="M8.5 8.5 L7 2.5 L12 6 M23.5 8.5 L25 2.5 L20 6"/>
+      <path d="M7 15 C4.5 18 5 23 8.5 25.5 M25 15 C27.5 18 27 23 23.5 25.5"/>
+      <circle cx="12" cy="12.5" r="3.7" style="fill:var(--paper)"/><circle cx="20" cy="12.5" r="3.7" style="fill:var(--paper)"/>
+      <circle class="eye" cx="12.5" cy="12.8" r="1.6" fill="currentColor" stroke="none"/><circle class="eye" cx="20.5" cy="12.8" r="1.6" fill="currentColor" stroke="none"/>
+      <path d="M15 15.6 L16 18.4 L17 15.6 Z" style="fill:var(--accent)" stroke="none"/>
+      <path d="M12 21 q1.3 1.3 2.6 0 q1.3 1.3 2.6 0 q1.3 1.3 2.6 0 M13.3 24 q1.3 1.3 2.6 0 q1.3 1.3 2.6 0" stroke-width="1"/>
+      <path d="M13 28 v2.5 M19 28 v2.5" style="stroke:var(--accent)"/>
+    </svg></div>
+  </div>
+</div>
+
+<script>
+/* ===== scene-deck engine (no edits needed) ===== */
+(() => {
+  const stage = document.getElementById('stage');
+  const scenes = [...document.querySelectorAll('.scene')];
+  const SHAPES = 'path,line,polyline,polygon,circle,ellipse,rect';
+  const KEYS = ['step', 'fx', 'dim', 'out'];
+
+  // Prep draw-on shapes: measure stroke length, stagger children.
+  document.querySelectorAll('.draw').forEach(g => {
+    if (!g.hasAttribute('data-step')) g.dataset.step = 0;
+    const shapes = g.matches(SHAPES) ? [g] : [...g.querySelectorAll(SHAPES)];
+    shapes.forEach((s, i) => {
+      if (s.getAttribute('stroke-dasharray')) return s.classList.add('draw-fade'); // keep authored dashes; fade instead
+      s.classList.add('draw-shape');
+      s.style.setProperty('--len', Math.ceil(s.getTotalLength ? s.getTotalLength() : 2000) + 1);
+      if (!s.style.getPropertyValue('--i')) s.style.setProperty('--i', i);
+    });
+  });
+
+  // Flatten scenes into a global step list; chapters start at scenes with data-chapter.
+  const steps = [], chapters = [];
+  scenes.forEach((sc, i) => {
+    const nums = [...sc.querySelectorAll(KEYS.map(k => `[data-${k}]`).join())]
+      .flatMap(e => KEYS.map(k => +e.dataset[k] || 0));
+    const n = Math.max(0, ...nums);
+    if (sc.dataset.chapter || !chapters.length) chapters.push({ title: sc.dataset.chapter || '', start: steps.length });
+    for (let k = 0; k <= n; k++) steps.push([i, k]);
+  });
+  const last = Math.max(1, steps.length - 1);
+
+  // Timeline dots
+  const tl = document.getElementById('timeline'), fill = tl.querySelector('.fill'), mascot = document.getElementById('mascot');
+  const dots = chapters.map((c, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot'; d.style.left = (c.start / last * 100) + '%';
+    d.innerHTML = `<b>${i + 1}</b>` + (c.title ? `<i>${c.title}</i>` : '');
+    tl.appendChild(d); return d;
+  });
+
+  function apply(sc, k) {
+    for (const e of sc.querySelectorAll('[data-step]')) e.classList.toggle('on', k >= +e.dataset.step);
+    for (const e of sc.querySelectorAll('[data-fx]')) e.classList.toggle('fx-on', k >= +e.dataset.fx);
+    for (const e of sc.querySelectorAll('[data-dim]')) e.classList.toggle('dimmed', k >= +e.dataset.dim);
+    for (const e of sc.querySelectorAll('[data-out]')) e.classList.toggle('gone', k >= +e.dataset.out);
+  }
+  function instant(sc, k) { sc.classList.add('reset'); apply(sc, k); sc.offsetWidth; sc.classList.remove('reset'); }
+  scenes.forEach(sc => instant(sc, -1));
+
+  let cur = -1, active = -1;
+  const timers = new Map();
+  function go(g, animate = true) {
+    g = Math.max(0, Math.min(steps.length - 1, g | 0));
+    if (g === cur) return;
+    const forward = g > cur, [si, k] = steps[g];
+    if (si !== active) {
+      const old = scenes[active];
+      if (old) { old.classList.remove('active'); timers.set(old, setTimeout(() => instant(old, -1), 500)); }
+      const sc = scenes[si];
+      clearTimeout(timers.get(sc));
+      // Entering a scene mid-way (going back / seeking) shows its state at once.
+      instant(sc, animate && forward && k === 0 ? -1 : k);
+      sc.classList.add('active'); active = si;
+    }
+    apply(scenes[si], k);
+    mascot.classList.toggle('back', !forward && cur !== -1);
+    if (cur !== -1) { mascot.classList.add('walk'); clearTimeout(go.w); go.w = setTimeout(() => mascot.classList.remove('walk'), 550); }
+    cur = g;
+    const pct = cur / last * 100 + '%';
+    fill.style.width = pct; mascot.style.left = pct;
+    dots.forEach((d, i) => d.classList.toggle('past', chapters[i].start <= cur));
+    history.replaceState(null, '', '#' + cur);
+  }
+
+  addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const K = e.key;
+    if (['ArrowRight', 'ArrowDown', ' ', 'PageDown', 'Enter'].includes(K)) go(cur + 1);
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(K)) go(cur - 1);
+    else if (K === 'Home') go(0);
+    else if (K === 'End') go(steps.length - 1);
+    else if (/^[1-9]$/.test(K) && chapters[K - 1]) go(chapters[K - 1].start);
+    else if (K === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    else return;
+    e.preventDefault();
+  });
+
+  // Click or drag the timeline to scrub.
+  const seek = e => { const r = tl.getBoundingClientRect(); go(Math.round((e.clientX - r.left) / r.width * last)); };
+  tl.addEventListener('pointerdown', e => { tl.setPointerCapture(e.pointerId); seek(e); tl.onpointermove = seek; });
+  tl.addEventListener('pointerup', () => tl.onpointermove = null);
+
+  const fit = () => { const s = Math.min(innerWidth / 1600, innerHeight / 900); stage.style.transform = `translate(-50%,-50%) scale(${s})`; };
+  addEventListener('resize', fit); fit();
+  const h = +location.hash.slice(1) || 0; go(h, h === 0);
+  window.deck = { go, steps, chapters, get cur() { return cur; } };
+})();
+</script>
+</body>
+</html>
